@@ -1,0 +1,6 @@
+{
+  "name": "Shorly Smart Review Funnel",
+  "description": "Premium review funnel for local businesses using NFC cards and QR codes. Maximizes Google Reviews using multilingual Gemini AI and captures complaints privately.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
