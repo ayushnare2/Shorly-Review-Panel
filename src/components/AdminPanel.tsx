@@ -16,24 +16,25 @@ import {
   Phone, 
   ExternalLink, 
   Check, 
-  Layers, 
   Tag, 
   Star, 
   RefreshCw, 
   AlertCircle,
   MapPin,
-  User
+  User,
+  LogOut
 } from "lucide-react";
 import { Business, Feedback, ReviewLog, AIGeneration } from "../types";
 import { api, isSupabaseConfigured } from "../lib/supabase";
 
 interface AdminPanelProps {
   onLaunchFunnel: (business: Business) => void;
+  onLogout: () => void;
 }
 
-type ActiveTab = 'businesses' | 'feedback' | 'analytics' | 'instructions';
+type ActiveTab = 'businesses' | 'feedback' | 'analytics' | 'audit';
 
-export default function AdminPanel({ onLaunchFunnel }: AdminPanelProps) {
+export default function AdminPanel({ onLaunchFunnel, onLogout }: AdminPanelProps) {
   // DB States
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [feedback, setFeedback] = useState<Feedback[]>([]);
@@ -62,6 +63,13 @@ export default function AdminPanel({ onLaunchFunnel }: AdminPanelProps) {
 
   // Copy success tooltips
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+
+  // AI Business Audit States
+  const [auditBusinessId, setAuditBusinessId] = useState<string>("");
+  const [auditReport, setAuditReport] = useState<string>("");
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState("");
+  const [auditGeneratedAt, setAuditGeneratedAt] = useState<string>("");
 
   // Initial Fetch
   const fetchData = async () => {
@@ -205,6 +213,52 @@ export default function AdminPanel({ onLaunchFunnel }: AdminPanelProps) {
     setTimeout(() => setCopiedUrl(null), 2000);
   };
 
+  // Generate the Monthly AI Business Audit for the selected business
+  const handleGenerateAudit = async () => {
+    if (!auditBusinessId) {
+      setAuditError("Select a business to audit first.");
+      return;
+    }
+    setAuditLoading(true);
+    setAuditError("");
+    setAuditReport("");
+    try {
+      const res = await fetch("/api/generate-audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId: auditBusinessId }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || `Audit generation failed (${res.status}).`);
+      }
+      const data = await res.json();
+      setAuditReport(data.reportText || "");
+      setAuditGeneratedAt(new Date().toLocaleString());
+    } catch (err: any) {
+      console.error("Audit generation failed:", err);
+      setAuditError(err.message || "Failed to generate audit report.");
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  // Download the currently generated audit report as a text file
+  const handleDownloadAudit = () => {
+    if (!auditReport) return;
+    const biz = businesses.find(b => b.id === auditBusinessId);
+    const filename = `${biz ? biz.slug : "business"}-ai-audit-${new Date().toISOString().slice(0, 10)}.txt`;
+    const blob = new Blob([auditReport], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   // Aggregated analytics values
   const totalDirectClicks = reviewLogs.filter(l => l.review_type === 'direct').length;
   const totalAIClicks = reviewLogs.filter(l => l.review_type === 'ai').length;
@@ -251,6 +305,13 @@ export default function AdminPanel({ onLaunchFunnel }: AdminPanelProps) {
             >
               <RefreshCw className="w-4 h-4" />
             </button>
+            <button 
+              onClick={onLogout} 
+              className="p-2 rounded-xl bg-white/5 border border-white/10 hover:bg-red-500/10 hover:border-red-500/20 hover:text-red-400 text-gray-300 transition-colors shadow-sm backdrop-blur-md"
+              title="Logout"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
@@ -260,7 +321,7 @@ export default function AdminPanel({ onLaunchFunnel }: AdminPanelProps) {
             { id: 'businesses', label: 'Business Profiles', icon: Building2 },
             { id: 'feedback', label: 'Private Feedback Feed', icon: MessageSquareOff },
             { id: 'analytics', label: 'Review Conversion Analytics', icon: BarChart3 },
-            { id: 'instructions', label: 'System Setup Manual', icon: Layers }
+            { id: 'audit', label: 'AI Business Audit', icon: Sparkles }
           ] as const).map((tab) => (
             <button
               key={tab.id}
@@ -565,42 +626,94 @@ export default function AdminPanel({ onLaunchFunnel }: AdminPanelProps) {
             </div>
           )}
 
-          {/* TAB 4: MANUAL / INSTRUCTIONS */}
-          {activeTab === 'instructions' && (
+          {/* TAB 4: AI BUSINESS AUDIT */}
+          {activeTab === 'audit' && (
             <div className="space-y-5 text-left leading-relaxed">
               <div className="space-y-0.5">
-                <h3 className="text-lg font-bold tracking-tight">System Setup Manual</h3>
-                <p className="text-xs text-gray-400">Configure your production environment (Supabase, Gemini, Resend) in less than 5 minutes.</p>
+                <h3 className="text-lg font-bold tracking-tight">Monthly AI Review & Operations Audit</h3>
+                <p className="text-xs text-gray-400">Select a business to scan its approved public reviews and intercepted private feedback, then generate a premium consulting-style audit report.</p>
               </div>
 
-              <div className="bg-white/5 border border-white/10 backdrop-blur-md rounded-2xl p-5 space-y-4 text-xs font-semibold">
-                {/* Steps */}
-                <div className="space-y-3">
-                  <div className="p-4 bg-white/5 rounded-xl border border-white/5">
-                    <p className="text-white font-bold mb-1">1. Configure Supabase Environment</p>
-                    <p className="text-gray-400 font-medium">To connect this client to a real Supabase Database, define the following variables in your platform settings:</p>
-                    <pre className="p-2.5 bg-black/80 border border-white/10 text-yellow-400 font-mono text-[10px] rounded-lg mt-2 overflow-x-auto select-all">
-VITE_SUPABASE_URL="https://your-project.supabase.co"
-VITE_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsIn..."
-                    </pre>
-                  </div>
-
-                  <div className="p-4 bg-white/5 rounded-xl border border-white/5">
-                    <p className="text-white font-bold mb-1">2. Run SQL Schema Script</p>
-                    <p className="text-gray-400 font-medium">Go to your Supabase SQL Editor, paste the contents of `/supabase/schema.sql`, and run it. This provisions your tables, Row Level Security, indexes, and triggers automatically.</p>
-                  </div>
-
-                  <div className="p-4 bg-white/5 rounded-xl border border-white/5">
-                    <p className="text-white font-bold mb-1">3. Configure Gemini AI API Key</p>
-                    <p className="text-gray-400 font-medium">Configure your Gemini API key in the platform's **Secrets Panel** under `GEMINI_API_KEY`. This runs the multilingual generation engine server-side safely without key exposure.</p>
-                  </div>
-
-                  <div className="p-4 bg-white/5 rounded-xl border border-white/5">
-                    <p className="text-white font-bold mb-1">4. Configure Resend Email alerts</p>
-                    <p className="text-gray-400 font-medium">Provide `RESEND_API_KEY` in the secrets panel. This automatically triggers instant HTML email delivery to business owners the moment a complaint is recorded.</p>
-                  </div>
+              {businesses.length === 0 ? (
+                <div className="p-12 text-center border border-white/10 rounded-3xl bg-white/5 backdrop-blur-md shadow-sm text-gray-400">
+                  <Sparkles className="w-12 h-12 text-gray-500 mx-auto mb-3" />
+                  <p className="font-bold text-white">No Businesses Available</p>
+                  <p className="text-xs">Create a business profile first to run an audit against its review data.</p>
                 </div>
-              </div>
+              ) : (
+                <>
+                  {/* Business selector + generate control */}
+                  <div className="p-5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md shadow-sm flex flex-col sm:flex-row sm:items-end gap-4">
+                    <div className="flex-1 space-y-1">
+                      <label className="text-[10px] font-mono font-bold uppercase tracking-widest text-gray-400">Business to Audit</label>
+                      <select
+                        id="audit-business-select"
+                        value={auditBusinessId}
+                        onChange={(e) => setAuditBusinessId(e.target.value)}
+                        className="w-full text-xs p-3 rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-yellow-400 focus:border-yellow-400 bg-white/5 font-medium text-white"
+                      >
+                        <option value="" disabled className="bg-[#121214]">Select a business...</option>
+                        {businesses.map((biz) => (
+                          <option key={biz.id} value={biz.id} className="bg-[#121214]">{biz.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      id="generate-audit-btn"
+                      type="button"
+                      onClick={handleGenerateAudit}
+                      disabled={auditLoading || !auditBusinessId}
+                      className="px-5 py-3 rounded-xl bg-yellow-400 text-black hover:bg-yellow-300 disabled:opacity-50 transition-colors font-bold text-xs flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(250,204,21,0.25)] cursor-pointer whitespace-nowrap"
+                    >
+                      {auditLoading ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          Generating Audit...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Generate Monthly Audit
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {auditError && (
+                    <div className="p-3.5 rounded-xl bg-red-500/10 text-red-400 text-xs font-semibold flex items-center gap-2 border border-red-500/20">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{auditError}</span>
+                    </div>
+                  )}
+
+                  {/* Generated report */}
+                  {auditReport && (
+                    <div className="p-5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md shadow-sm space-y-4">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="space-y-0.5">
+                          <h4 className="font-bold text-sm tracking-tight text-white flex items-center gap-1.5">
+                            <Sparkles className="w-4 h-4 text-yellow-400" />
+                            Audit Report
+                          </h4>
+                          <p className="text-[10px] text-gray-500 font-mono">Generated {auditGeneratedAt}</p>
+                        </div>
+                        <button
+                          id="download-audit-btn"
+                          type="button"
+                          onClick={handleDownloadAudit}
+                          className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white transition-colors font-bold text-xs flex items-center gap-1.5 border border-white/10 cursor-pointer"
+                        >
+                          <Send className="w-3.5 h-3.5 rotate-90" />
+                          Download Report
+                        </button>
+                      </div>
+                      <div className="p-4 rounded-xl bg-black/40 border border-white/5 text-xs text-gray-200 font-medium leading-relaxed whitespace-pre-wrap select-text max-h-[500px] overflow-y-auto scrollbar-thin">
+                        {auditReport}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 

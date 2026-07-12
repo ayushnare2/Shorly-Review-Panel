@@ -2,9 +2,11 @@ import React, { useState, useEffect } from "react";
 import AdminPanel from "./components/AdminPanel";
 import ReviewFunnel from "./components/ReviewFunnel";
 import { Business } from "./types";
-import { api } from "./lib/supabase";
+import { api, auth } from "./lib/supabase";
 import { RefreshCw, Building2, AlertCircle, Sparkles, Smartphone } from "lucide-react";
 import { isSupabaseConfigured } from "./lib/supabase";
+import LoginPage from "./components/LoginPage";
+import type { Session } from "@supabase/supabase-js";
 
 export default function App() {
   // Routing States
@@ -13,6 +15,27 @@ export default function App() {
   const [loadingBusiness, setLoadingBusiness] = useState(false);
   const [errorText, setErrorText] = useState("");
   console.log("Supabase:", isSupabaseConfigured);
+
+  // Admin Auth States
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // Check for an existing session on load, and subscribe to auth changes
+  // (covers login, logout, and session persistence after refresh).
+  useEffect(() => {
+    auth.getSession()
+      .then((s) => setSession(s))
+      .catch((err) => console.error("Error checking session:", err))
+      .finally(() => setAuthLoading(false));
+
+    const { data: subscription } = auth.onAuthStateChange((s) => {
+      setSession(s);
+    });
+
+    return () => {
+      subscription?.subscription?.unsubscribe();
+    };
+  }, []);
 
   // Handle URL Path changes
   useEffect(() => {
@@ -80,6 +103,16 @@ export default function App() {
     navigateTo("/");
   };
 
+  // Sign the admin out — auth.onAuthStateChange picks this up and
+  // the render logic below automatically falls back to LoginPage.
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+    } catch (err) {
+      console.error("Error signing out:", err);
+    }
+  };
+
   // ==========================================
   // RENDER DECISION
   // ==========================================
@@ -139,7 +172,7 @@ export default function App() {
     );
   }
 
-  // 3. Customer Funnel View
+  // 3. Customer Funnel View (public — no auth required)
   if (activeBusiness) {
     return (
       <ReviewFunnel 
@@ -149,10 +182,26 @@ export default function App() {
     );
   }
 
-  // 4. Default: Admin Panel & Simulator
+  // 4. Admin Auth Loading State (checking for an existing session)
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col justify-center items-center p-6 font-sans">
+        <RefreshCw className="w-6 h-6 text-yellow-400 animate-spin" />
+        <span className="text-xs text-gray-500 font-mono uppercase tracking-widest mt-3">Checking session...</span>
+      </div>
+    );
+  }
+
+  // 5. Not Logged In — show Login Page instead of the Admin Panel
+  if (!session) {
+    return <LoginPage />;
+  }
+
+  // 6. Default: Admin Panel & Simulator (authenticated admins only)
   return (
     <AdminPanel 
       onLaunchFunnel={handleLaunchFunnel} 
+      onLogout={handleLogout}
     />
   );
 }

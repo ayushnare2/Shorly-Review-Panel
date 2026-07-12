@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, Session } from "@supabase/supabase-js";
 import { Business, Feedback, ReviewLog, AIGeneration } from "../types";
 
 // Read environment variables
@@ -77,104 +77,167 @@ initLocalStorage();
 // ==========================================
 
 export const api = {
-  // --- BUSINESS OPERATIONS ---
   
-  async getBusinesses(): Promise<Business[]> {
-    if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase
-        .from("businesses")
-        .select("*")
-        .order("name", { ascending: true });
-      if (error) throw error;
-      return data || [];
-    } else {
-      const bStr = localStorage.getItem("shorly_businesses");
-      return bStr ? JSON.parse(bStr) : [];
-    }
-  },
+  // =============================
+// BUSINESS OPERATIONS
+// =============================
 
-  async getBusinessBySlug(slug: string): Promise<Business | null> {
-    if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase
-        .from("businesses")
-        .select("*")
-        .eq("slug", slug)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    } else {
-      const businesses = await this.getBusinesses();
-      return businesses.find(b => b.slug.toLowerCase() === slug.toLowerCase()) || null;
-    }
-  },
+async getBusinesses(): Promise<Business[]> {
+  if (isSupabaseConfigured && supabase) {
+    const { data, error } = await supabase
+      .from("businesses")
+      .select("*")
+      .order("name", { ascending: true });
 
-  async createBusiness(business: Omit<Business, "id">): Promise<Business> {
-    const newBusiness: Business = {
-      ...business,
-      id: isSupabaseConfigured ? undefined : `local-biz-${Date.now()}`,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    } as unknown as Business;
+    if (error) throw error;
 
-    if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase
-        .from("businesses")
-        .insert([newBusiness])
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    } else {
-      const businesses = await this.getBusinesses();
-      businesses.push(newBusiness);
-      localStorage.setItem("shorly_businesses", JSON.stringify(businesses));
-      return newBusiness;
-    }
-  },
+    return data || [];
+  }
 
-  async updateBusiness(id: string, updates: Partial<Business>): Promise<Business> {
-    if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase
-        .from("businesses")
-        .update(updates)
-        .eq("id", id)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    } else {
-      const businesses = await this.getBusinesses();
-      const index = businesses.findIndex(b => b.id === id);
-      if (index === -1) throw new Error("Business not found");
-      
-      const updated = { ...businesses[index], ...updates, updated_at: new Date().toISOString() };
-      businesses[index] = updated;
-      localStorage.setItem("shorly_businesses", JSON.stringify(businesses));
-      return updated;
-    }
-  },
+  const bStr = localStorage.getItem("shorly_businesses");
+  return bStr ? JSON.parse(bStr) : [];
+},
 
-  async deleteBusiness(id: string): Promise<boolean> {
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase
-        .from("businesses")
-        .delete()
-        .eq("id", id);
-      if (error) throw error;
-      return true;
-    } else {
-      const businesses = await this.getBusinesses();
-      const filtered = businesses.filter(b => b.id !== id);
-      localStorage.setItem("shorly_businesses", JSON.stringify(filtered));
-      
-      // Cascade delete logs
-      const feedback = await this.getFeedback(id);
-      const filteredFeedback = feedback.filter(f => f.business_id !== id);
-      localStorage.setItem("shorly_feedback", JSON.stringify(filteredFeedback));
+async getBusinessBySlug(slug: string): Promise<Business | null> {
+  if (isSupabaseConfigured && supabase) {
+    const { data, error } = await supabase
+      .from("businesses")
+      .select("*")
+      .eq("slug", slug)
+      .maybeSingle();
 
-      return true;
-    }
-  },
+    if (error) throw error;
+
+    return data;
+  }
+
+  const businesses = await this.getBusinesses();
+  return businesses.find(
+    (b) => b.slug.toLowerCase() === slug.toLowerCase()
+  ) || null;
+},
+
+async createBusiness(business: Omit<Business, "id">): Promise<Business> {
+
+  if (isSupabaseConfigured && supabase) {
+
+    const { data, error } = await supabase
+      .from("businesses")
+      .insert([
+        {
+          slug: business.slug,
+          name: business.name,
+          logo_url: business.logo_url,
+          business_type: business.business_type,
+          google_review_link: business.google_review_link,
+          owner_email: business.owner_email,
+          owner_whatsapp: business.owner_whatsapp,
+          location: business.location,
+          services: business.services,
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return data as Business;
+  }
+
+  // Local fallback
+
+  const newBusiness: Business = {
+    ...business,
+    id: `local-biz-${Date.now()}`,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  } as Business;
+
+  const businesses = await this.getBusinesses();
+
+  businesses.push(newBusiness);
+
+  localStorage.setItem(
+    "shorly_businesses",
+    JSON.stringify(businesses)
+  );
+
+  return newBusiness;
+},
+
+async updateBusiness(
+  id: string,
+  updates: Partial<Business>
+): Promise<Business> {
+
+  if (isSupabaseConfigured && supabase) {
+
+    const { data, error } = await supabase
+      .from("businesses")
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return data as Business;
+  }
+
+  const businesses = await this.getBusinesses();
+
+  const index = businesses.findIndex((b) => b.id === id);
+
+  if (index === -1) {
+    throw new Error("Business not found");
+  }
+
+  const updated = {
+    ...businesses[index],
+    ...updates,
+    updated_at: new Date().toISOString(),
+  };
+
+  businesses[index] = updated;
+
+  localStorage.setItem(
+    "shorly_businesses",
+    JSON.stringify(businesses)
+  );
+
+  return updated as Business;
+},
+
+async deleteBusiness(id: string): Promise<boolean> {
+
+  if (isSupabaseConfigured && supabase) {
+
+    const { error } = await supabase
+      .from("businesses")
+      .delete()
+      .eq("id", id);
+
+    if (error) throw error;
+
+    return true;
+  }
+
+  const businesses = await this.getBusinesses();
+
+  const filtered = businesses.filter(
+    (b) => b.id !== id
+  );
+
+  localStorage.setItem(
+    "shorly_businesses",
+    JSON.stringify(filtered)
+  );
+
+  return true;
+},
 
   // Generate a guaranteed unique slug for a business
   async generateUniqueSlug(name: string): Promise<string> {
@@ -425,5 +488,47 @@ async logReview(log: Omit<ReviewLog, "id" | "created_at">): Promise<ReviewLog> {
       }
       return gens.reverse();
     }
+  }
+};
+
+// ==========================================
+// ADMIN AUTHENTICATION (Supabase Auth only)
+// ==========================================
+// Reuses the same `supabase` client above. No new client, no profile/role
+// tables — admin accounts are created manually in the Supabase Dashboard
+// under Authentication > Users, and public signups should stay disabled there.
+
+export const auth = {
+  async signIn(email: string, password: string) {
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your environment.");
+    }
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return data;
+  },
+
+  async signOut(): Promise<void> {
+    if (!isSupabaseConfigured || !supabase) return;
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+  },
+
+  async getSession(): Promise<Session | null> {
+    if (!isSupabaseConfigured || !supabase) return null;
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    return data.session;
+  },
+
+  onAuthStateChange(callback: (session: Session | null) => void) {
+    if (!isSupabaseConfigured || !supabase) {
+      // Return a no-op subscription so callers can always call .unsubscribe()
+      // without checking whether Supabase is configured.
+      return { data: { subscription: { unsubscribe: () => {} } } };
+    }
+    return supabase.auth.onAuthStateChange((_event, session) => {
+      callback(session);
+    });
   }
 };
